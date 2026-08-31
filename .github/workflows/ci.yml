@@ -1,0 +1,38 @@
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly Monday 07:00 UTC — catches API drift between pushes so the
+    # tutorial's code can never rot silently.
+    - cron: "0 7 * * 1"
+
+jobs:
+  emergency-cascade:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/emergency-cascade
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: examples/emergency-cascade/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # The live run needs a sandbox key (repo secret CRISPHIVE_API_KEY,
+      # chsk_test_ — mint a 365-day one so CI doesn't die with the default
+      # 30-day expiry). Without the secret the job still typechecks and says
+      # so loudly instead of pretending it ran.
+      - name: Run the demo against the live sandbox
+        env:
+          CRISPHIVE_API_KEY: ${{ secrets.CRISPHIVE_API_KEY }}
+        run: |
+          if [ -z "$CRISPHIVE_API_KEY" ]; then
+            echo "::warning::CRISPHIVE_API_KEY secret not set — live demo run SKIPPED (typecheck only)"
+          else
+            npm run demo
+          fi

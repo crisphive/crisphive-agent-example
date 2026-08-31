@@ -1,0 +1,20 @@
+{
+  "name": "@crisphive/example-emergency-cascade",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Crisphive dispatch flow example: connect, book, emergency cascade — REST and Claude-over-MCP.",
+  "type": "module",
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "agent": "tsx src/agent.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
