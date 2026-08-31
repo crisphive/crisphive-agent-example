@@ -2,11 +2,9 @@ name: ci
 on:
   push:
   pull_request:
+  # No cron by choice: the live demo runs only when a human triggers the
+  # workflow (and only if the CRISPHIVE_API_KEY secret is set).
   workflow_dispatch:
-  schedule:
-    # Weekly Monday 07:00 UTC — catches API drift between pushes so the
-    # tutorial's code can never rot silently.
-    - cron: "0 7 * * 1"
 
 jobs:
   emergency-cascade:
