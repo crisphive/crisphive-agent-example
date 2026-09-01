@@ -125,16 +125,16 @@ function score(expect: Expect, trace: string[]): RuleResult[] {
       detail: hit ? `called ${hit}` : "none called",
     });
   }
-  for (const tool of expandMacros(expect.none_of ?? [])) {
-    if (trace.includes(tool)) {
-      results.push({ rule: `none_of ${tool}`, pass: false, detail: "CALLED — forbidden" });
-    }
+  const forbidden = expandMacros(expect.none_of ?? []);
+  const forbiddenHits = forbidden.filter((tool) => trace.includes(tool));
+  for (const tool of forbiddenHits) {
+    results.push({ rule: `none_of ${tool}`, pass: false, detail: "CALLED — forbidden" });
   }
-  if (expect.none_of?.length && !results.some((r) => r.rule.startsWith("none_of"))) {
+  if (forbidden.length > 0 && forbiddenHits.length === 0) {
     results.push({
-      rule: `none_of [${expect.none_of.join(", ")}]`,
+      rule: `none_of [${expect.none_of!.join(", ")}]`,
       pass: true,
-      detail: "no forbidden tool called",
+      detail: `none of the ${forbidden.length} forbidden tools called`,
     });
   }
   for (const [a, b] of expect.before ?? []) {
@@ -203,10 +203,16 @@ async function main() {
   };
 
   const args = process.argv.slice(2);
-  const onlyArg = args.indexOf("--only");
-  const only = onlyArg !== -1 ? new Set(args[onlyArg + 1]!.split(",")) : null;
-  const outArg = args.indexOf("--out");
-  const outPath = outArg !== -1 ? args[outArg + 1]! : null;
+  const flagValue = (flag: string): string | null => {
+    const at = args.indexOf(flag);
+    if (at === -1) return null;
+    const v = args[at + 1];
+    if (!v || v.startsWith("--")) throw new Error(`${flag} needs a value (e.g. ${flag} book-basic)`);
+    return v;
+  };
+  const onlyValue = flagValue("--only");
+  const only = onlyValue ? new Set(onlyValue.split(",")) : null;
+  const outPath = flagValue("--out");
 
   const questions = seeds.questions.filter((q) => !only || only.has(q.id));
   if (questions.length === 0) throw new Error("--only matched no question ids");

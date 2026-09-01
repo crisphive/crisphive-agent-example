@@ -37,6 +37,12 @@ const MAX_TOKENS = Number(
 if (!Number.isInteger(MAX_TOKENS) || MAX_TOKENS < 1) {
   throw new Error(`ANTHROPIC_MAX_TOKENS must be a positive integer, got "${process.env.ANTHROPIC_MAX_TOKENS}"`);
 }
+// Optional: pause_turn continuations per prompt (the eval runner's
+// EVAL_MAX_TURNS sibling) — each continuation re-sends the whole context.
+const MAX_TURNS = Number(process.env.AGENT_MAX_TURNS ?? "8");
+if (!Number.isInteger(MAX_TURNS) || MAX_TURNS < 1) {
+  throw new Error(`AGENT_MAX_TURNS must be a positive integer, got "${process.env.AGENT_MAX_TURNS}"`);
+}
 
 const PROMPTS = [
   'Schedule a 2-hour HVAC job at 145 Laurier Ave W tomorrow for Marie Tremblay, 613-555-0142.',
@@ -52,7 +58,7 @@ async function runPrompt(prompt: string) {
 
   // Server-side MCP tools loop until done; `pause_turn` means the server-side
   // tool loop hit its iteration limit — resend to resume where it left off.
-  for (let turn = 0; turn < 8; turn++) {
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await client.beta.messages.create({
       model: MODEL,
       max_tokens: MAX_TOKENS,
@@ -86,12 +92,16 @@ async function runPrompt(prompt: string) {
     }
     return;
   }
-  console.log("   (stopped after 8 continuation turns)");
+  console.log(`   (stopped after ${MAX_TURNS} continuation turns)`);
 }
 
 async function main() {
-  if (!CRISPHIVE_KEY.startsWith("chsk_")) {
-    throw new Error("Set CRISPHIVE_API_KEY to a chsk_test_ sandbox key (see .env.example)");
+  // SANDBOX ONLY: the prompts book jobs and commit an emergency reschedule.
+  // A chsk_live_ key would let the agent mutate a real business's schedule.
+  if (!CRISPHIVE_KEY.startsWith("chsk_test_")) {
+    throw new Error(
+      "Set CRISPHIVE_API_KEY to a chsk_test_ SANDBOX key (see .env.example) — the prompts mutate data, so live keys are refused.",
+    );
   }
   for (const prompt of PROMPTS) {
     await runPrompt(prompt);

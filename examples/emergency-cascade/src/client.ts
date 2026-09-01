@@ -22,8 +22,14 @@ export async function crisp<T>(
   path: string,
   opts: { body?: unknown; query?: Record<string, string> } = {},
 ): Promise<T> {
-  if (!KEY.startsWith("chsk_")) {
-    throw new Error("Set CRISPHIVE_API_KEY to a chsk_test_ sandbox key (see .env.example)");
+  // SANDBOX ONLY, deliberately: this demo books jobs and commits an emergency
+  // reschedule. On a chsk_live_ key those would be real mutations on a real
+  // business's schedule. If you truly want that, edit this line — that edit
+  // is the consent.
+  if (!KEY.startsWith("chsk_test_")) {
+    throw new Error(
+      "Set CRISPHIVE_API_KEY to a chsk_test_ SANDBOX key (see .env.example) — the demo mutates data, so live keys are refused.",
+    );
   }
   const url = new URL(`${BASE}/v1${path}`);
   for (const [k, v] of Object.entries(opts.query ?? {})) url.searchParams.set(k, v);
@@ -36,7 +42,14 @@ export async function crisp<T>(
     },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
   });
-  const envelope = (await res.json()) as { error_code: number | string; message: string; data: T };
+  // A gateway/LB error page is not JSON — say "HTTP 502", not SyntaxError.
+  const raw = await res.text();
+  let envelope: { error_code: number | string; message: string; data: T };
+  try {
+    envelope = JSON.parse(raw);
+  } catch {
+    throw new CrisphiveError("NON_JSON_RESPONSE", `HTTP ${res.status} — body was not JSON (gateway error?)`, res.status);
+  }
   if (envelope.error_code !== 0) {
     throw new CrisphiveError(String(envelope.error_code), envelope.message, res.status);
   }
