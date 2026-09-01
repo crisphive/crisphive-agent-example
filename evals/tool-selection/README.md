@@ -23,12 +23,21 @@ the kind of thing an agent silently gets wrong.
 
 ```bash
 npm install
-CRISPHIVE_API_KEY=chsk_test_... ANTHROPIC_API_KEY=sk-ant-... npm run eval
+CRISPHIVE_API_KEY=chsk_test_... ANTHROPIC_API_KEY=sk-ant-... \
+  ANTHROPIC_MODEL=claude-sonnet-5 ANTHROPIC_MAX_TOKENS=4000 npm run eval
 
 # a subset, or a JSON trace report:
 npm run eval -- --only bike-ride-read-only,emergency-preview-before-commit
 npm run eval -- --out results.json
 ```
+
+**`ANTHROPIC_MODEL` and `ANTHROPIC_MAX_TOKENS` are required — there is no
+default.** A full run is 10+ multi-turn conversations and the MCP connector
+re-sends the whole context plus every tool result on every turn, so the model
+tier and the per-turn cap ARE the bill. Pick them deliberately
+(`claude-haiku-4-5` cheapest → `claude-sonnet-5` → `claude-opus-5` most
+expensive). `EVAL_MAX_TURNS` (default 6) bounds pause_turn continuations per
+question.
 
 ⚠️ The questions **mutate the sandbox** (bookings, an emergency commit, a new
 technician) — the runner refuses anything but a `chsk_test_` key. Exit code is

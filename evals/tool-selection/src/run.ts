@@ -14,9 +14,12 @@
 //            (vacuously true when b never fires — a preview-only run passes)
 //
 // Needs: CRISPHIVE_API_KEY (chsk_test_ — questions DO mutate the sandbox)
-//        + ANTHROPIC_API_KEY.
+//        + ANTHROPIC_API_KEY
+//        + ANTHROPIC_MODEL (required, no default — you pick what you pay for)
+//        + ANTHROPIC_MAX_TOKENS (required — per-turn output cap, e.g. 4000)
+//        + EVAL_MAX_TURNS (optional, default 6 — pause_turn continuations)
 //
-// Usage: npm run eval               all 10 questions
+// Usage: ANTHROPIC_MODEL=claude-sonnet-5 ANTHROPIC_MAX_TOKENS=4000 npm run eval
 //        npm run eval -- --only book-basic,bike-ride-read-only
 //        npm run eval -- --out results.json
 
@@ -27,8 +30,31 @@ import { fileURLToPath } from "node:url";
 
 const BASE = (process.env.CRISPHIVE_API_URL ?? "https://api.crisphive.com").replace(/\/$/, "");
 const CRISPHIVE_KEY = process.env.CRISPHIVE_API_KEY ?? "";
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";
-const MAX_TURNS = 10;
+
+// The spend knobs are REQUIRED — no silent default. A 10-question run on an
+// expensive model with a fat token budget is real money (the MCP connector
+// re-sends the whole conversation + every tool result on every turn), so the
+// person paying picks the model and the budget, deliberately.
+function requiredEnv(name: string, hint: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Set ${name} — ${hint}`);
+  return v;
+}
+const MODEL = requiredEnv(
+  "ANTHROPIC_MODEL",
+  'e.g. "claude-sonnet-5" (recommended for evals) or "claude-haiku-4-5"; "claude-opus-5" is the expensive one',
+);
+const MAX_TOKENS = Number(
+  requiredEnv("ANTHROPIC_MAX_TOKENS", "per-turn output cap, e.g. 4000 — tool selection needs no essays"),
+);
+if (!Number.isInteger(MAX_TOKENS) || MAX_TOKENS < 1) {
+  throw new Error(`ANTHROPIC_MAX_TOKENS must be a positive integer, got "${process.env.ANTHROPIC_MAX_TOKENS}"`);
+}
+// Optional: how many pause_turn continuations before giving up on a question.
+const MAX_TURNS = Number(process.env.EVAL_MAX_TURNS ?? "6");
+if (!Number.isInteger(MAX_TURNS) || MAX_TURNS < 1) {
+  throw new Error(`EVAL_MAX_TURNS must be a positive integer, got "${process.env.EVAL_MAX_TURNS}"`);
+}
 
 // Every tool that changes state. Previews (previewJobRequestMove,
 // previewEmergencyReschedule) are pure by design and deliberately absent.
@@ -139,7 +165,7 @@ async function runQuestion(q: Question): Promise<string[]> {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: MAX_TOKENS,
       betas: ["mcp-client-2025-11-20"],
       mcp_servers: [
         { type: "url", url: `${BASE}/mcp`, name: "crisphive", authorization_token: CRISPHIVE_KEY },

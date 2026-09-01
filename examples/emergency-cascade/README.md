@@ -28,7 +28,10 @@ Two ways to run it:
 cp .env.example .env   # fill in CRISPHIVE_API_KEY (chsk_test_...)
 npm install
 npm run demo           # REST flow — needs only the Crisphive key
-npm run agent          # Claude agent — also needs ANTHROPIC_API_KEY
+npm run agent          # Claude agent — also needs ANTHROPIC_API_KEY,
+                       # plus ANTHROPIC_MODEL + ANTHROPIC_MAX_TOKENS (REQUIRED,
+                       # no default: multi-turn MCP conversations are real money,
+                       # so you pick the model tier and the per-turn cap)
 ```
 
 Get a sandbox key at [docs.crisphive.com](https://docs.crisphive.com) ("Get

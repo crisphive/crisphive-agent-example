@@ -10,13 +10,33 @@
 // The three prompts are the ones from our Claude-directory listing — they
 // run against a seeded sandbox out of the box.
 //
-// Needs: CRISPHIVE_API_KEY (chsk_test_) + ANTHROPIC_API_KEY.
+// Needs: CRISPHIVE_API_KEY (chsk_test_) + ANTHROPIC_API_KEY
+//        + ANTHROPIC_MODEL + ANTHROPIC_MAX_TOKENS (both REQUIRED — see below).
 
 import Anthropic from "@anthropic-ai/sdk";
 
 const BASE = (process.env.CRISPHIVE_API_URL ?? "https://api.crisphive.com").replace(/\/$/, "");
 const CRISPHIVE_KEY = process.env.CRISPHIVE_API_KEY ?? "";
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-opus-5";
+
+// The spend knobs are REQUIRED — no silent default. Each prompt is a
+// multi-turn conversation where the MCP connector re-sends the whole context
+// + every tool result on every turn, so model choice and the per-turn token
+// cap are the bill. The person paying picks them, deliberately.
+function requiredEnv(name: string, hint: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Set ${name} — ${hint}`);
+  return v;
+}
+const MODEL = requiredEnv(
+  "ANTHROPIC_MODEL",
+  'e.g. "claude-sonnet-5" (good default) or "claude-haiku-4-5" (cheapest); "claude-opus-5" is the expensive one',
+);
+const MAX_TOKENS = Number(
+  requiredEnv("ANTHROPIC_MAX_TOKENS", "per-turn output cap, e.g. 4000"),
+);
+if (!Number.isInteger(MAX_TOKENS) || MAX_TOKENS < 1) {
+  throw new Error(`ANTHROPIC_MAX_TOKENS must be a positive integer, got "${process.env.ANTHROPIC_MAX_TOKENS}"`);
+}
 
 const PROMPTS = [
   'Schedule a 2-hour HVAC job at 145 Laurier Ave W tomorrow for Marie Tremblay, 613-555-0142.',
@@ -35,7 +55,7 @@ async function runPrompt(prompt: string) {
   for (let turn = 0; turn < 8; turn++) {
     const response = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 16000,
+      max_tokens: MAX_TOKENS,
       betas: ["mcp-client-2025-11-20"],
       mcp_servers: [
         {
