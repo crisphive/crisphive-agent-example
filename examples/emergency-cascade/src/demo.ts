@@ -41,56 +41,84 @@ function nextWorkday(tz: string): string {
   throw new Error("unreachable");
 }
 
+// Create a customer — or reuse the existing one when this sandbox already has
+// the phone number (re-runs are normal; CUSTOMER_DUPLICATE_PHONE is a stable
+// code your integration can branch on, so we do exactly that).
+async function ensureCustomer(body: {
+  full_name: string;
+  phone: string;
+  email?: string;
+  address: object;
+}): Promise<Customer> {
+  try {
+    // Create returns the customer object DIRECTLY in data (no wrapper key).
+    return await crisp<Customer>("POST", "/customers", { body });
+  } catch (e) {
+    if (!(e instanceof CrisphiveError) || e.code !== "CUSTOMER_DUPLICATE_PHONE") throw e;
+    // The phone is the identity — `q` searches it, and the existing record may
+    // carry a different name if this sandbox has been played with before.
+    const list = await crisp<{ customers: Customer[] }>("GET", "/customers", {
+      query: { q: body.phone, limit: "5" },
+    });
+    const found = list.customers[0];
+    if (!found) throw e;
+    if (found.full_name !== body.full_name) {
+      console.log(`      (reusing existing customer "${found.full_name}" — this phone already lives in your sandbox)`);
+    }
+    return found;
+  }
+}
+
 async function main() {
   // ── 1. Connect ───────────────────────────────────────────────────────────
   console.log("── 1. Connect");
   const techs = await crisp<{ technicians: unknown[] }>("GET", "/technicians", {
     query: { limit: "100" },
   });
-  const jobTypes = await crisp<{ job_types: { id: string; name: string }[] }>("GET", "/job-types", {
+  // Note: /v1/job-types returns a BARE ARRAY in data (not a wrapped list).
+  const jobTypes = await crisp<{ id: string; name: string }[]>("GET", "/job-types", {
     query: { limit: "100" },
   });
-  ok(`key works — roster: ${techs.technicians.length} technicians, catalog: ${jobTypes.job_types.length} job types`);
+  ok(`key works — roster: ${techs.technicians.length} technicians, catalog: ${jobTypes.length} job types`);
   if (techs.technicians.length === 0) {
     bad("sandbox has no technicians — open the dashboard once so the sandbox seeds, then re-run");
     process.exit(1);
   }
   const jobType =
-    jobTypes.job_types.find((t) => /maintenance|tune|general/i.test(t.name)) ?? jobTypes.job_types[0];
+    jobTypes.find((t) => /maintenance|tune|general/i.test(t.name)) ?? jobTypes[0];
 
   // ── 2. Book ──────────────────────────────────────────────────────────────
   console.log("── 2. Book a job (quote → slots → confirm)");
-  const marie = await crisp<{ customer: Customer }>("POST", "/customers", {
-    body: {
-      full_name: "Marie Tremblay",
-      phone: "+16135550142", // E.164 with the leading + — bare national digits are rejected
-      email: "marie.tremblay@example.com",
-      address: { line: "145 Laurier Ave W", city: "Ottawa", state: "ON", country: "CA" },
-    },
+  const marie = await ensureCustomer({
+    full_name: "Marie Tremblay",
+    phone: "+16135550142", // E.164 with the leading + — bare national digits are rejected
+    email: "marie.tremblay@example.com",
+    address: { line: "145 Laurier Ave W", city: "Ottawa", state: "ON", country: "CA" },
   });
-  ok(`customer: ${marie.customer.full_name} (${marie.customer.id})`);
+  ok(`customer: ${marie.full_name} (${marie.id})`);
 
   // We don't know the business timezone yet — probe it from booking windows
   // by booking with a provisional date, then read the authoritative timezone
   // off the time-segments response.
   const provisionalDate = nextWorkday("America/Toronto");
-  const booked = await crisp<{ job_request: JobRequest }>("POST", "/job-requests", {
+  // Note: create returns the job object DIRECTLY in data (no wrapper key).
+  const booked = await crisp<JobRequest>("POST", "/job-requests", {
     body: {
-      customer_id: marie.customer.id,
+      customer_id: marie.id,
       job_type_id: jobType.id,
       description: "2-hour HVAC maintenance visit (example repo demo)",
       priority: "p2",
       job_dates: [{ date: provisionalDate, periods: [{ period: "morning" }] }],
     },
   });
-  ok(`job request booked: #${booked.job_request.short_code}`);
+  ok(`job request booked: #${booked.short_code}`);
 
-  await crisp("POST", `/job-requests/${booked.job_request.id}/quote`, {
+  await crisp("POST", `/job-requests/${booked.id}/quote`, {
     body: { job_duration_minutes: 120, mobilization_minutes: 30, demobilization_minutes: 30 },
   });
   ok("quoted: 120 min on site + 30 mobilization + 30 demobilization");
 
-  const segments = await crisp<TimeSegments>("GET", `/job-requests/${booked.job_request.id}/time-segments`);
+  const segments = await crisp<TimeSegments>("GET", `/job-requests/${booked.id}/time-segments`);
   const tz = segments.business_timezone;
   const firstDay = segments.days.find((d) => d.time_slots.length > 0);
   if (!firstDay) {
@@ -101,66 +129,67 @@ async function main() {
   const scheduledAt = slot.business_time?.datetime ?? slot.datetime;
   ok(`picked a REAL slot: ${scheduledAt} (${slot.workers_count ?? "?"} technicians can take it)`);
 
-  const confirmed = await crisp<{ job_request: JobRequest }>(
-    "POST",
-    `/job-requests/${booked.job_request.id}/confirm`,
-    { body: { scheduled_at: scheduledAt } },
-  );
-  ok(`confirmed — status: ${confirmed.job_request.current_status?.key ?? "confirmed"} (auto-assigned)`);
+  await crisp("POST", `/job-requests/${booked.id}/confirm`, { body: { scheduled_at: scheduledAt } });
+  const afterConfirm = await crisp<JobRequest>("GET", `/job-requests/${booked.id}`);
+  ok(`confirmed — status: ${afterConfirm.current_status?.key ?? "confirmed"} (technician auto-assigned)`);
 
   // ── 3. Emergency cascade ─────────────────────────────────────────────────
   console.log("── 3. Emergency cascade (preview → commit)");
-  const david = await crisp<{ customer: Customer }>("POST", "/customers", {
-    body: {
-      full_name: "David Okafor",
-      phone: "+16135550198",
-      address: { line: "99 Bank St", city: "Ottawa", state: "ON", country: "CA" },
-    },
+  const david = await ensureCustomer({
+    full_name: "David Okafor",
+    phone: "+16135550198",
+    address: { line: "99 Bank St", city: "Ottawa", state: "ON", country: "CA" },
   });
-  const emergency = await crisp<{ job_request: JobRequest }>("POST", "/job-requests", {
+  const emergency = await crisp<JobRequest>("POST", "/job-requests", {
     body: {
-      customer_id: david.customer.id,
+      customer_id: david.id,
       job_type_id: jobType.id,
       description: "P0: no heat, infant at home (example repo demo)",
       priority: "p0",
       job_dates: [{ date: firstDay.date, periods: [{ period: "morning" }, { period: "afternoon" }] }],
     },
   });
-  await crisp("POST", `/job-requests/${emergency.job_request.id}/quote`, {
+  await crisp("POST", `/job-requests/${emergency.id}/quote`, {
     body: { job_duration_minutes: 90, mobilization_minutes: 30, demobilization_minutes: 30 },
   });
-  ok(`P0 created + quoted: no heat at 99 Bank St — #${emergency.job_request.short_code}`);
+  ok(`P0 created + quoted: no heat at 99 Bank St — #${emergency.short_code}`);
 
   // Land the emergency mid-morning on the SAME day as the booked job, so the
   // cascade has something to ripple through. start_at is business-local naive.
   const startAt = `${firstDay.date}T11:15:00`;
   const cands = await crisp<EmergencyCandidates>("POST", "/job-requests/emergency/candidates", {
-    body: { emergency_job_id: emergency.job_request.id, mode: "overtime", start_at: startAt },
+    body: { emergency_job_id: emergency.id, mode: "overtime", start_at: startAt },
   });
   if (cands.candidates.length === 0) {
     bad("no emergency candidates — unexpected on a seeded sandbox");
     process.exit(1);
   }
-  const top = cands.candidates[0];
+  // Production picks candidates[0] (least disruption). The DEMO deliberately
+  // prefers a candidate whose day must ripple, so you can see the cascade;
+  // on a roster with free capacity the top pick absorbs it with zero moves.
+  const top = cands.candidates.find((c) => c.total_moves > 0) ?? cands.candidates[0];
   ok(
     `candidates: ${cands.candidates.length} ranked technicians ` +
       `(top: ${top.full_name}, ${top.total_moves} move(s), ${top.travel_minutes ?? "?"} min travel)`,
   );
 
   const previewBody = {
-    emergency_job_id: emergency.job_request.id,
+    emergency_job_id: emergency.id,
     mode: "overtime",
     start_at: startAt,
     technician_id: top.technician_id,
   };
   const plan = await crisp<EmergencyPlan>("POST", "/job-requests/emergency/preview", { body: previewBody });
   ok(`preview: emergency lands ${plan.emergency_start} → ${plan.emergency_end} · ${plan.total_moves} job(s) touched, 0 dropped`);
-  for (const day of plan.days) {
-    for (const m of day.moves) {
+  if (plan.total_moves === 0) {
+    console.log("      (zero moves — this roster had free capacity, so nothing needed to ripple)");
+  }
+  for (const day of plan.days ?? []) {
+    for (const m of day.moves ?? []) {
       console.log(`      slide    #${m.short_code}  ${m.customer_name ?? ""}  ${m.from_start} → ${m.to_start}`);
     }
   }
-  for (const r of plan.reassignments) {
+  for (const r of plan.reassignments ?? []) {
     console.log(`      reassign #${r.short_code}  ${r.customer_name ?? ""}  → ${r.to_name ?? "?"} (+${r.travel_minutes ?? 0} min travel)`);
   }
   for (const w of plan.warnings ?? []) {
@@ -186,7 +215,7 @@ async function main() {
   try {
     const impossible = await crisp<EmergencyCandidates>("POST", "/job-requests/emergency/candidates", {
       body: {
-        emergency_job_id: emergency.job_request.id,
+        emergency_job_id: emergency.id,
         mode: "overtime",
         start_at: `${firstDay.date}T03:00:00`, // 3am — nobody's shift covers it
       },
