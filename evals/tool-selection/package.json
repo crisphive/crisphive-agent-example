@@ -1,0 +1,19 @@
+{
+  "name": "@crisphive/eval-tool-selection",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tool-selection eval: does an agent pick the right Crisphive MCP tools, in the right order?",
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

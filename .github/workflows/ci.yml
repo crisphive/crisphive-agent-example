@@ -34,3 +34,20 @@ jobs:
           else
             npm run demo
           fi
+
+  # The eval runner is typecheck-only in CI: running it costs Anthropic API
+  # money and mutates the sandbox, so it stays a human-triggered local run.
+  eval-tool-selection:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: evals/tool-selection
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: evals/tool-selection/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck

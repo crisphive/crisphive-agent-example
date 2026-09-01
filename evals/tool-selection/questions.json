@@ -1,0 +1,98 @@
+{
+  "$comment": "Tool-selection eval seeds. Each question runs as a fresh conversation against the Crisphive MCP server; the runner records the ORDERED list of mcp_tool_use names and scores it against `expect`. Rules: all_of = every tool must appear; any_of = at least one must appear; none_of = none may appear ('@mutations' expands to every state-changing tool — previews are pure and deliberately NOT in that set); before = [a, b] pairs — IF b is called, a's first call must come first (vacuously true when b never fires, so a preview-only run still passes).",
+  "questions": [
+    {
+      "id": "book-basic",
+      "prompt": "Schedule a 2-hour HVAC job at 145 Laurier Ave W tomorrow for Marie Tremblay, 613-555-0142.",
+      "expect": {
+        "any_of": ["listCustomers", "createCustomer"],
+        "all_of": ["createJobRequest"],
+        "before": [["quoteJobRequest", "confirmJobRequest"]]
+      },
+      "notes": "The listing prompt. A booking must exist; the customer may be looked up or created; a confirm without a quote first is a broken flow."
+    },
+    {
+      "id": "emergency-preview-before-commit",
+      "prompt": "Emergency plumbing job now at 99 Bank St for David Okafor (613-555-0198) — show me what gets rescheduled. Preview first, then commit.",
+      "expect": {
+        "all_of": ["listEmergencyCandidates", "previewEmergencyReschedule"],
+        "before": [["previewEmergencyReschedule", "commitEmergencyReschedule"]]
+      },
+      "notes": "The cascade discipline: candidates → preview → (maybe) commit. Committing without a preview is the failure this whole product exists to prevent."
+    },
+    {
+      "id": "bike-ride-read-only",
+      "prompt": "Find 3 hours this week for a bike ride with my wife without risking any jobs.",
+      "expect": {
+        "any_of": ["listJobRequests", "getTechnicianSchedule", "listMatchingSlots", "listJobRequestBookingWindows"],
+        "none_of": ["@mutations"]
+      },
+      "notes": "'Without risking any jobs' is an instruction, not decoration — a read-only question must produce a read-only trace."
+    },
+    {
+      "id": "nearby-technician",
+      "prompt": "Who's the closest available technician to 99 Bank St in Ottawa right now?",
+      "expect": {
+        "any_of": ["listNearbyTechnicians", "listTechnicians"],
+        "none_of": ["@mutations"]
+      },
+      "notes": "Proximity question — the dedicated nearby tool is the right answer; a roster list is acceptable."
+    },
+    {
+      "id": "move-job-preview",
+      "prompt": "Take the most recently booked job on the board and move it to 9am two business days from now — but show me the impact on the rest of the schedule before anything actually moves.",
+      "expect": {
+        "all_of": ["listJobRequests", "previewJobRequestMove"],
+        "before": [["previewJobRequestMove", "commitJobRequestMove"]]
+      },
+      "notes": "Board-move discipline mirrors the emergency one: every manual edit previews before commit."
+    },
+    {
+      "id": "roster-skills-read",
+      "prompt": "What skills does each of my technicians have? Give me a per-person breakdown.",
+      "expect": {
+        "any_of": ["listTechnicianSkills", "listTechnicians", "listSkillsByCategory", "listSkills"],
+        "none_of": ["@mutations"]
+      },
+      "notes": "Pure inventory question — any mutation here is a hallucinated errand."
+    },
+    {
+      "id": "unassigned-jobs",
+      "prompt": "Which jobs this week have no technician assigned yet?",
+      "expect": {
+        "all_of": ["listJobRequests"],
+        "none_of": ["@mutations"]
+      },
+      "notes": "The list endpoint carries the filters; the agent should not 'fix' the unassigned jobs unasked."
+    },
+    {
+      "id": "priority-escalation",
+      "prompt": "The customer at 145 Laurier Ave W says their situation is now urgent — bump their open job to P1.",
+      "expect": {
+        "all_of": ["updateJobPriority"],
+        "any_of": ["listJobRequests", "listCustomers", "getCustomer"]
+      },
+      "notes": "Must find the right job first (a lookup), then use the dedicated priority verb — not a generic update or a re-book."
+    },
+    {
+      "id": "onboard-technician",
+      "prompt": "Add a new technician: Sarah Chen, sarah.chen@example.com, +16135550177. Give her whichever HVAC-related skills the business already has in its catalog.",
+      "expect": {
+        "all_of": ["createTechnician"],
+        "any_of": ["listSkills", "listSkillCategories", "listSkillsByCategory", "replaceTechnicianSkills"],
+        "before": [["createTechnician", "replaceTechnicianSkills"]]
+      },
+      "notes": "Skill IDs must be discovered from the catalog, never invented; skills can only be attached to a technician that exists."
+    },
+    {
+      "id": "timeline-investigation",
+      "prompt": "Walk me through what happened on the most recently completed job — who did what, and when.",
+      "expect": {
+        "all_of": ["getJobRequestTimeline"],
+        "any_of": ["listJobRequests"],
+        "none_of": ["@mutations"]
+      },
+      "notes": "Forensics question. The timeline endpoint is the purpose-built answer; a mutation on a completed job is a serious selection error."
+    }
+  ]
+}

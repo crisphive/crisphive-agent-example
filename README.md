@@ -18,6 +18,12 @@ your dashboard under Settings → Developers → API keys.
 More examples land in `examples/<name>/` — each is self-contained with its own
 README, dependencies, and run instructions.
 
+## Evals
+
+| Eval | What it measures |
+|---|---|
+| [`evals/tool-selection`](evals/tool-selection) | Given 10 realistic dispatch questions, does an MCP-connected agent pick the **right tools in the right order**? Scores the `mcp_tool_use` trace deterministically (`all_of`/`any_of`/`none_of`/`before`) — never the prose. The headline rule: *preview before commit*. |
+
 ## The three prompts
 
 Connected via MCP (Claude, Cursor, ChatGPT, or any MCP client), these run
